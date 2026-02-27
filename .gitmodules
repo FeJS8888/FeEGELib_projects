@@ -1,0 +1,3 @@
+[submodule "name-caller/3rdparty/FeEGELib"]
+	path = name-caller/3rdparty/FeEGELib
+	url = https://github.com/FeJS8888/FeEGELib.git

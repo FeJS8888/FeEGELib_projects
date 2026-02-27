@@ -1,0 +1,62 @@
+name: 点名器 Build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Set up MinGW (Linux cross-compile to Windows)
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x64
+
+      - name: Install Ninja
+        run: sudo apt-get install -y ninja-build
+
+      - name: Build with CMake
+        working-directory: name-caller
+        run: |
+          # 修复 xege 子模块中可能导致交叉编译失败的 CMake 逻辑
+          sed -i '/if(CMAKE_HOST_UNIX)/,/endif()/d' 3rdparty/FeEGELib/3rdparty/xege/CMakeLists.txt
+
+          mkdir -p build
+          cmake -S . -B build \
+            -G "Ninja" \
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+            -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+            -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DEGE_BUILD_DEMO=OFF \
+            -DEGE_BUILD_TEST=OFF \
+            -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++"
+
+          cmake --build build
+
+      - name: Upload NameCaller executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: NameCaller-Windows
+          path: name-caller/build/NameCaller.exe
+          if-no-files-found: error
+
+      - name: Upload config
+        uses: actions/upload-artifact@v4
+        with:
+          name: NameCaller-Config
+          path: name-caller/config/
+          if-no-files-found: warn
