@@ -104,7 +104,7 @@ int main() {
         .setColor(EGERGBA(64, 128, 255, 255))
         .setSize(180, 60)
         .setRadius(12)
-        .setContent("开始点名")
+        .setContent(L"开始点名")
         .setOnClick([&]() {
             if (names.empty() || rolling) return;
             rolling = true;
@@ -121,7 +121,7 @@ int main() {
         .setColor(EGERGBA(119, 136, 153, 255))
         .setSize(150, 60)
         .setRadius(12)
-        .setContent("配置成员")
+        .setContent(L"配置成员")
         .setOnClick([&]() {
             if (rolling) return;
             int result = MessageBox(
