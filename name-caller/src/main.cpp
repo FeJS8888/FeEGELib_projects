@@ -1,5 +1,4 @@
 #include "FeEGELib.h"
-#include <algorithm>
 #include <fstream>
 #include <random>
 #include <string>
@@ -9,135 +8,154 @@ using namespace std;
 using namespace FeEGE;
 
 int main() {
+    SetProcessDPIAware();
+    _setmode(_fileno(stdout), _O_WTEXT);
     setcaption("点名器");
     init(800, 600, INIT_NOFORCEEXIT | INIT_RENDERMANUAL);
-    initPen();
     setbkcolor(EGERGB(30, 30, 30));
 
     random_device rd;
     mt19937 rng(rd());
-    vector<string> names;
+    vector<wstring> names;
     string configPath = resolvePath(".\\config\\names.txt");
 
     bool rolling = false;
-    string currentName = "";
+    wstring currentName;
     int remainingRolls = 0;
     int selectedIdx = -1;
+    constexpr int NAME_FONT_SIZE = 80;
 
-    // 从配置文件加载成员列表
+    // 从配置文件加载成员列表（UTF-8/ANSI 自动转换为 wstring）
     auto reloadNames = [&]() {
         names.clear();
         ifstream in(configPath);
         if (!in.is_open()) return;
         string line;
         while (getline(in, line)) {
-            if (detectEncoding(line) == "UTF-8") {
-                line = UTF8ToANSI(line);
-            }
             size_t first = line.find_first_not_of(" \t\r\n");
             if (first == string::npos) continue;
             if (line[first] == '#') continue;
             size_t last = line.find_last_not_of(" \t\r\n");
-            names.push_back(line.substr(first, last - first + 1));
-        }
-    };
-
-    // 重绘主界面
-    auto reDraw = [&]() {
-        pen::clearAll();
-
-        // 标题
-        pen::font(45, "宋体");
-        pen::color(EGERGB(0, 200, 255));
-        pen::print(X >> 1, (int)(Y * 0.07), "点名器");
-
-        // 成员数量提示
-        pen::font(22, "宋体");
-        pen::color(EGERGB(150, 150, 150));
-        pen::print(X >> 1, (int)(Y * 0.18), "成员数量：" + to_string(names.size()));
-
-        // 中央名字显示区域
-        if (!currentName.empty()) {
-            int fontSize = 110;
-            while (fontSize > 20 &&
-                   textwidth(currentName.c_str(), pen_image) >= (int)(X * 0.8)) {
-                fontSize--;
-                pen::font(fontSize, "宋体");
-            }
-            if (rolling) {
-                pen::color(EGERGB(255, 220, 50));
-            } else {
-                pen::color(WHITE);
-            }
-            pen::print(X >> 1, (int)(Y * 0.45), currentName);
-        } else {
-            pen::font(30, "宋体");
-            pen::color(EGERGB(80, 80, 80));
-            pen::print(X >> 1, (int)(Y * 0.45), "点击下方按钮开始点名");
+            names.push_back(autoToWString(line.substr(first, last - first + 1)));
         }
     };
 
     reloadNames();
-    reDraw();
 
-    // 滚动动画函数（在 main 作用域声明，保证引用有效）
+    // ===== Widget 构建 =====
+
+    // 标题
+    Text* titleText = TextBuilder()
+        .setPosition(400, 40)
+        .setContent(L"点名器")
+        .setFont(50, L"宋体")
+        .setColor(EGERGB(0, 200, 255))
+        .setAlign(TextAlign::Center)
+        .build();
+
+    // 成员数量提示
+    Text* countText = TextBuilder()
+        .setPosition(400, 108)
+        .setContent(L"成员数量：" + to_wstring(names.size()))
+        .setFont(22, L"宋体")
+        .setColor(EGERGB(150, 150, 150))
+        .setAlign(TextAlign::Center)
+        .build();
+
+    // 中央名字显示区
+    Text* nameText = TextBuilder()
+        .setPosition(400, 240)
+        .setContent(L"点击下方按钮开始点名")
+        .setFont(28, L"宋体")
+        .setColor(EGERGB(80, 80, 80))
+        .setAlign(TextAlign::Center)
+        .build();
+
+    // 开始点名按钮
+    Button* rollBtn = ButtonBuilder()
+        .setIdentifier(L"rollButton")
+        .setSize(180, 60)
+        .setColor(EGERGBA(64, 128, 255, 255))
+        .setRadius(12)
+        .setContent(L"开始点名")
+        .build();
+
+    // 配置成员按钮
+    Button* settingsBtn = ButtonBuilder()
+        .setIdentifier(L"settingsButton")
+        .setSize(150, 60)
+        .setColor(EGERGBA(119, 136, 153, 255))
+        .setRadius(12)
+        .setContent(L"配置成员")
+        .build();
+
+    // 按钮行 Box（Row 布局，居中对齐）
+    Box* btnBox = BoxBuilder()
+        .setCenter(400, 510)
+        .setSize(600, 80)
+        .setDirection(LayoutDirection::Row)
+        .setAlign(LayoutAlign::Center)
+        .setSpacing(20)
+        .addChild({rollBtn, settingsBtn})
+        .build();
+
+    assignOrder({titleText, countText, nameText, btnBox});
+
+    // ===== 界面更新 =====
+    auto updateUI = [&]() {
+        countText->setContent(L"成员数量：" + to_wstring(names.size()));
+        if (currentName.empty()) {
+            nameText->setContent(L"点击下方按钮开始点名");
+            nameText->setFont(28, L"宋体");
+            nameText->setColor(EGERGB(80, 80, 80));
+        } else {
+            nameText->setContent(currentName);
+            nameText->setFont(NAME_FONT_SIZE, L"宋体");
+            nameText->setColor(rolling ? EGERGB(255, 220, 50) : WHITE);
+        }
+    };
+
+    // ===== 滚动动画（在 main 作用域声明，保证引用有效）=====
     function<void()> doRoll;
     doRoll = [&]() {
         if (remainingRolls > 0) {
             currentName = names[uniform_int_distribution<size_t>(0, names.size() - 1)(rng)];
-            reDraw();
+            updateUI();
             int elapsed = 20 - remainingRolls;
             remainingRolls--;
-            int delay = 50 + elapsed * 10;
-            setTimeOut(doRoll, delay);
+            setTimeOut(doRoll, 50 + elapsed * 10);
         } else {
             currentName = names[selectedIdx];
             rolling = false;
-            reDraw();
+            updateUI();
         }
     };
 
-    // 开始点名按钮
-    ButtonBuilder()
-        .setIdentifier(L"rollButton")
-        .setCenter(X * 0.5, Y - 75)
-        .setColor(EGERGBA(64, 128, 255, 255))
-        .setSize(180, 60)
-        .setRadius(12)
-        .setContent(L"开始点名")
-        .setOnClick([&]() {
-            if (names.empty() || rolling) return;
-            rolling = true;
-            selectedIdx = static_cast<int>(uniform_int_distribution<size_t>(0, names.size() - 1)(rng));
-            remainingRolls = 20;
-            doRoll();
-        })
-        .build();
+    // ===== 按钮事件绑定 =====
+    rollBtn->setOnClickEvent([&]() {
+        if (names.empty() || rolling) return;
+        rolling = true;
+        selectedIdx = static_cast<int>(uniform_int_distribution<size_t>(0, names.size() - 1)(rng));
+        remainingRolls = 20;
+        doRoll();
+    });
 
-    // 配置成员按钮
-    ButtonBuilder()
-        .setIdentifier(L"settingsButton")
-        .setCenter(X - 100, Y - 75)
-        .setColor(EGERGBA(119, 136, 153, 255))
-        .setSize(150, 60)
-        .setRadius(12)
-        .setContent(L"配置成员")
-        .setOnClick([&]() {
-            if (rolling) return;
-            int result = MessageBox(
-                getHWnd(),
-                TEXT("即将打开配置文件，关闭配置文件后自动重载，是否继续？"),
-                TEXT("提示"),
-                MB_YESNO | MB_ICONQUESTION
-            );
-            if (result == IDYES) {
-                runCmdAwait("notepad.exe " + configPath);
-                reloadNames();
-                reDraw();
-            }
-        })
-        .build();
+    settingsBtn->setOnClickEvent([&]() {
+        if (rolling) return;
+        int result = MessageBox(
+            getHWnd(),
+            TEXT("即将打开配置文件，关闭配置文件后自动重载，是否继续？"),
+            TEXT("提示"),
+            MB_YESNO | MB_ICONQUESTION
+        );
+        if (result == IDYES) {
+            runCmdAwait("notepad.exe " + configPath);
+            reloadNames();
+            updateUI();
+        }
+    });
 
     start();
     return 0;
 }
+
